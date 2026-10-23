@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:image_picker/image_picker.dart';
 
 // Package Peta & Kalkulasi Jarak GPS
 import 'package:flutter_map/flutter_map.dart';
@@ -12,13 +14,13 @@ import 'package:latlong2/latlong.dart';
 // ==========================================
 // TEMA WARNA KEBUDAYAAN JOGJA (BATIK SOGAN)
 // ==========================================
-const Color soganBrown = Color(0xFF3E2010); // Cokelat Tua Sogan Keraton
-const Color keratonGold = Color(0xFFC59B27); // Emas Ornamen Keraton
-const Color warmCream = Color(0xFFFAF6F0); // Krem Kain Mori
-const Color jogjaTerracotta = Color(0xFFA63A1E); // Merah Bata / Out of Bounds
-const Color keratonGreen = Color(0xFF2E6F40); // Hijau Gedhong Kuning (Tersedia)
+const Color soganBrown = Color(0xFF3E2010);
+const Color keratonGold = Color(0xFFC59B27);
+const Color warmCream = Color(0xFFFAF6F0);
+const Color jogjaTerracotta = Color(0xFFA63A1E);
+const Color keratonGreen = Color(0xFF2E6F40);
 
-const LatLng pusatYogyakarta = LatLng(-7.7956, 110.3695); // Tugu Jogja
+const LatLng pusatYogyakarta = LatLng(-7.7956, 110.3695);
 const double batasRadiusJogjaKm = 15.0;
 
 void main() {
@@ -26,7 +28,7 @@ void main() {
 }
 
 // ==========================================
-// PAINTER MOTIF BATIK KAWUNG JOGJA (ASLI)
+// PAINTER MOTIF BATIK KAWUNG JOGJA
 // ==========================================
 class BatikKawungPainter extends CustomPainter {
   final Color color;
@@ -38,26 +40,15 @@ class BatikKawungPainter extends CustomPainter {
       ..color = color
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.2;
-
     final paintFill = Paint()
       ..color = color.withOpacity(color.opacity * 0.8)
       ..style = PaintingStyle.fill;
-
-    // Teknik rahasia membatik Kawung:
-    // Menggambar lingkaran-lingkaran yang saling tumpang tindih dengan jarak
-    // sejari-jari (r). Perpotongannya otomatis akan membentuk kelopak bunga.
-    double r = 24.0;
-    double step = r;
+    double r = 24.0, step = r;
 
     for (double x = -r; x < size.width + r * 2; x += step) {
       for (double y = -r; y < size.height + r * 2; y += step) {
-        // 1. Gambar lingkaran dasar (saling berpotongan)
         canvas.drawCircle(Offset(x, y), r, paintStroke);
-
-        // 2. Isen-isen (Titik Cecek khas batik) tepat di tengah kelopak
         canvas.drawCircle(Offset(x + r / 2, y + r / 2), 2.5, paintFill);
-
-        // 3. Aksen ketupat/bintang di titik temu antar kelopak
         canvas.drawRect(
           Rect.fromCenter(center: Offset(x, y), width: 6.0, height: 6.0),
           Paint()
@@ -75,28 +66,15 @@ class BatikKawungPainter extends CustomPainter {
 }
 
 // ==========================================
-// HELPER LOGIKA GEOFENCING & GPS
+// HELPER LOGIKA GEOFENCING & BIAYA
 // ==========================================
 class GPSHelper {
-  static double hitungJarakDariJogja(double lat, double lng) {
-    const Distance distance = Distance();
-    return distance.as(LengthUnit.Kilometer, pusatYogyakarta, LatLng(lat, lng));
-  }
-
-  static bool isKeluarAreaJogja(double lat, double lng) {
-    return hitungJarakDariJogja(lat, lng) > batasRadiusJogjaKm;
-  }
-
-  static int hitungBiayaTambahan(double lat, double lng) {
-    double jarak = hitungJarakDariJogja(lat, lng);
-    if (jarak <= batasRadiusJogjaKm) return 0;
-    double kelebihanKm = jarak - batasRadiusJogjaKm;
-    return 50000 + (kelebihanKm * 10000).round();
-  }
-
-  static String formatRupiah(int nominal) {
-    return 'Rp ${nominal.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}';
-  }
+  static double hitungJarakDariJogja(double lat, double lng) => const Distance()
+      .as(LengthUnit.Kilometer, pusatYogyakarta, LatLng(lat, lng));
+  static bool isKeluarAreaJogja(double lat, double lng) =>
+      hitungJarakDariJogja(lat, lng) > batasRadiusJogjaKm;
+  static String formatRupiah(int nominal) =>
+      'Rp ${nominal.toString().replaceAllMapped(RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'), (Match m) => '${m[1]}.')}';
 }
 
 Color getStatusColor(String status) {
@@ -109,15 +87,11 @@ Color getStatusColor(String status) {
 // MODEL DATA MOTOR
 // ==========================================
 class Motor {
-  String id;
-  String merk;
-  String plat;
-  String status;
-  double lat;
-  double lng;
-  int hargaHarian;
-  int hargaMingguan;
-  int hargaBulanan;
+  String id, merk, plat, status;
+  double lat, lng;
+  int hargaHarian, hargaMingguan, hargaBulanan;
+  String? imageBase64, paketSewa, tanggalSewa, jamSewa;
+  int? lamaSewa;
 
   Motor({
     required this.id,
@@ -129,11 +103,72 @@ class Motor {
     this.hargaHarian = 0,
     this.hargaMingguan = 0,
     this.hargaBulanan = 0,
+    this.imageBase64,
+    this.paketSewa,
+    this.lamaSewa,
+    this.tanggalSewa,
+    this.jamSewa,
   });
 
   bool get isOutOfArea => GPSHelper.isKeluarAreaJogja(lat, lng);
-  int get extraFee => GPSHelper.hitungBiayaTambahan(lat, lng);
   double get distanceKm => GPSHelper.hitungJarakDariJogja(lat, lng);
+
+  DateTime? get waktuSelesai {
+    if (status != 'Disewa' ||
+        tanggalSewa == null ||
+        jamSewa == null ||
+        lamaSewa == null ||
+        paketSewa == null)
+      return null;
+    try {
+      final parts = tanggalSewa!.split('/');
+      final timeParts = jamSewa!.split(':');
+      final start = DateTime(
+        int.parse(parts[2]),
+        int.parse(parts[1]),
+        int.parse(parts[0]),
+        int.parse(timeParts[0]),
+        int.parse(timeParts[1]),
+      );
+      if (paketSewa == 'Harian') return start.add(Duration(days: lamaSewa!));
+      if (paketSewa == 'Mingguan')
+        return start.add(Duration(days: lamaSewa! * 7));
+      if (paketSewa == 'Bulanan')
+        return DateTime(
+          start.year,
+          start.month + lamaSewa!,
+          start.day,
+          start.hour,
+          start.minute,
+        );
+    } catch (_) {}
+    return null;
+  }
+
+  bool get isTerlambat {
+    final selesai = waktuSelesai;
+    return selesai != null ? DateTime.now().isAfter(selesai) : false;
+  }
+
+  String get tenggatWaktuStr {
+    final selesai = waktuSelesai;
+    return selesai != null
+        ? '${selesai.day.toString().padLeft(2, '0')}/${selesai.month.toString().padLeft(2, '0')}/${selesai.year} - ${selesai.hour.toString().padLeft(2, '0')}:${selesai.minute.toString().padLeft(2, '0')}'
+        : '-';
+  }
+
+  int get totalHargaSewa {
+    if (status == 'Disewa' && paketSewa != null && lamaSewa != null) {
+      if (paketSewa == 'Harian') return hargaHarian * lamaSewa!;
+      if (paketSewa == 'Mingguan') return hargaMingguan * lamaSewa!;
+      if (paketSewa == 'Bulanan') return hargaBulanan * lamaSewa!;
+    }
+    return hargaHarian > 0 ? hargaHarian : 0;
+  }
+
+  int get dendaKeluarArea => isOutOfArea ? (totalHargaSewa * 0.10).round() : 0;
+  int get dendaTerlambat => isTerlambat ? (totalHargaSewa * 0.10).round() : 0;
+  int get totalDenda => dendaKeluarArea + dendaTerlambat;
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -145,6 +180,11 @@ class Motor {
     'hargaHarian': hargaHarian,
     'hargaMingguan': hargaMingguan,
     'hargaBulanan': hargaBulanan,
+    'imageBase64': imageBase64,
+    'paketSewa': paketSewa,
+    'lamaSewa': lamaSewa,
+    'tanggalSewa': tanggalSewa,
+    'jamSewa': jamSewa,
   };
 
   factory Motor.fromJson(Map<String, dynamic> json) => Motor(
@@ -157,6 +197,11 @@ class Motor {
     hargaHarian: json['hargaHarian'] ?? 0,
     hargaMingguan: json['hargaMingguan'] ?? 0,
     hargaBulanan: json['hargaBulanan'] ?? 0,
+    imageBase64: json['imageBase64'],
+    paketSewa: json['paketSewa'],
+    lamaSewa: json['lamaSewa'],
+    tanggalSewa: json['tanggalSewa'],
+    jamSewa: json['jamSewa'],
   );
 }
 
@@ -187,9 +232,9 @@ class RentTrackApp extends StatelessWidget {
 }
 
 // ==========================================
-// HEADER ATAS MELENGKUNG (APPBAR CUSTOM)
+// HEADER ATAS DENGAN FITUR FOTO LOGO
 // ==========================================
-class JogjaTopHeader extends StatelessWidget implements PreferredSizeWidget {
+class JogjaTopHeader extends StatefulWidget implements PreferredSizeWidget {
   final String title;
   final List<Widget>? actions;
 
@@ -197,6 +242,39 @@ class JogjaTopHeader extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Size get preferredSize => const Size.fromHeight(70.0);
+
+  @override
+  State<JogjaTopHeader> createState() => _JogjaTopHeaderState();
+}
+
+class _JogjaTopHeaderState extends State<JogjaTopHeader> {
+  String? logoBase64;
+  final ImagePicker _picker = ImagePicker();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadLogo();
+  }
+
+  Future<void> _loadLogo() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() => logoBase64 = prefs.getString('app_logo'));
+  }
+
+  Future<void> _pickLogo() async {
+    final XFile? image = await _picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 30,
+    );
+    if (image != null) {
+      final bytes = await image.readAsBytes();
+      final base64Str = base64Encode(bytes);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('app_logo', base64Str);
+      setState(() => logoBase64 = base64Str);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -212,7 +290,6 @@ class JogjaTopHeader extends StatelessWidget implements PreferredSizeWidget {
         borderRadius: const BorderRadius.vertical(bottom: Radius.circular(20)),
         child: Stack(
           children: [
-            // Corak Batik di Header
             Positioned.fill(
               child: CustomPaint(
                 painter: BatikKawungPainter(
@@ -226,31 +303,45 @@ class JogjaTopHeader extends StatelessWidget implements PreferredSizeWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   child: Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: keratonGold.withOpacity(0.15),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: keratonGold, width: 1.5),
-                        ),
-                        child: const Icon(
-                          Icons.two_wheeler_rounded,
-                          color: keratonGold,
-                          size: 22,
+                      // --- FITUR KLIK UNTUK MENGGANTI LOGO ---
+                      GestureDetector(
+                        onTap: _pickLogo,
+                        child: Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: keratonGold.withOpacity(0.15),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: keratonGold, width: 1.5),
+                            image: logoBase64 != null
+                                ? DecorationImage(
+                                    image: MemoryImage(
+                                      base64Decode(logoBase64!),
+                                    ),
+                                    fit: BoxFit.cover,
+                                  )
+                                : null,
+                          ),
+                          child: logoBase64 == null
+                              ? const Icon(
+                                  Icons.storefront_rounded,
+                                  color: keratonGold,
+                                  size: 22,
+                                )
+                              : null,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Text(
-                        title,
+                        widget.title,
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: 0.5,
                         ),
                       ),
                       const Spacer(),
-                      if (actions != null) ...actions!,
+                      if (widget.actions != null) ...widget.actions!,
                     ],
                   ),
                 ),
@@ -285,7 +376,6 @@ class _MainScreenState extends State<MainScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: _getSelectedScreen(),
-      // Navigasi Bawah
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           boxShadow: [
@@ -325,7 +415,7 @@ class _MainScreenState extends State<MainScreen> {
 }
 
 // ==========================================
-// SCREEN 1: PETA DENGAN BATIK GEOMETRIS
+// SCREEN 1: PETA
 // ==========================================
 class PetaScreen extends StatefulWidget {
   const PetaScreen({super.key});
@@ -348,7 +438,6 @@ class _PetaScreenState extends State<PetaScreen> {
     setState(() => isLoading = true);
     final prefs = await SharedPreferences.getInstance();
     final String? dataString = prefs.getString('data_motor');
-
     if (dataString != null) {
       final List decoded = jsonDecode(dataString);
       motorList = decoded.map((e) => Motor.fromJson(e)).toList();
@@ -360,11 +449,10 @@ class _PetaScreenState extends State<PetaScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final int jumlahKeluarArea = motorList.where((m) => m.isOutOfArea).length;
+    final int jumlahPelanggar = motorList.where((m) => m.isOutOfArea).length;
 
     return Scaffold(
       backgroundColor: warmCream,
-      // AppBar Khusus untuk Peta (Dengan Tombol Refresh)
       appBar: JogjaTopHeader(
         title: "Peta Armada",
         actions: [
@@ -375,7 +463,6 @@ class _PetaScreenState extends State<PetaScreen> {
               size: 28,
             ),
             onPressed: _loadData,
-            tooltip: 'Segarkan Peta',
           ),
         ],
       ),
@@ -392,7 +479,6 @@ class _PetaScreenState extends State<PetaScreen> {
                     TileLayer(
                       urlTemplate:
                           'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.renttrack.app',
                     ),
                     CircleLayer(
                       circles: [
@@ -429,12 +515,6 @@ class _PetaScreenState extends State<PetaScreen> {
                                       color: keratonGold,
                                       width: 1.5,
                                     ),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Colors.black38,
-                                        blurRadius: 4,
-                                      ),
-                                    ],
                                   ),
                                   child: Text(
                                     motor.plat,
@@ -462,9 +542,7 @@ class _PetaScreenState extends State<PetaScreen> {
                     ),
                   ],
                 ),
-
-                // NOTIFIKASI WARN OUT OF BOUNDS
-                if (jumlahKeluarArea > 0)
+                if (jumlahPelanggar > 0)
                   Positioned(
                     top: 12,
                     left: 12,
@@ -474,9 +552,6 @@ class _PetaScreenState extends State<PetaScreen> {
                         color: jogjaTerracotta,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(color: keratonGold, width: 1.5),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black26, blurRadius: 6),
-                        ],
                       ),
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,
@@ -492,7 +567,7 @@ class _PetaScreenState extends State<PetaScreen> {
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              'AWAS! $jumlahKeluarArea armada di luar batas aman 15 KM!',
+                              'AWAS! $jumlahPelanggar armada di luar batas aman 15 KM!',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontWeight: FontWeight.bold,
@@ -504,54 +579,6 @@ class _PetaScreenState extends State<PetaScreen> {
                       ),
                     ),
                   ),
-
-                // BOX LEGENDA KHAS JOGJA
-                Positioned(
-                  bottom: 16,
-                  left: 16,
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: warmCream,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: soganBrown.withOpacity(0.4),
-                        width: 1.5,
-                      ),
-                      boxShadow: const [
-                        BoxShadow(color: Colors.black26, blurRadius: 6),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: const [
-                            Icon(
-                              Icons.workspace_premium,
-                              color: keratonGold,
-                              size: 16,
-                            ),
-                            SizedBox(width: 4),
-                            Text(
-                              'Area Geofence DIY',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                                color: soganBrown,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        _buildLegend(soganBrown, 'Batas Aman Tugu (15 KM)'),
-                        _buildLegend(keratonGreen, 'Tersedia'),
-                        _buildLegend(Colors.orange.shade800, 'Disewa'),
-                        _buildLegend(jogjaTerracotta, 'Out of Bounds (Denda)'),
-                      ],
-                    ),
-                  ),
-                ),
               ],
             ),
     );
@@ -609,27 +636,10 @@ class _PetaScreenState extends State<PetaScreen> {
       },
     );
   }
-
-  Widget _buildLegend(Color color, String text) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 3),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.brightness_1, color: color, size: 10),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: const TextStyle(fontSize: 11, color: Colors.black87),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 // ==========================================
-// SCREEN 2: DATA MOTOR DENGAN BATIK CARD
+// SCREEN 2: DATA MOTOR
 // ==========================================
 class MotorScreen extends StatefulWidget {
   const MotorScreen({super.key});
@@ -642,6 +652,7 @@ class _MotorScreenState extends State<MotorScreen> {
   List<Motor> motorList = [];
   bool isLoading = true;
   final bool isAdmin = true;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -652,7 +663,6 @@ class _MotorScreenState extends State<MotorScreen> {
   Future<void> _loadData() async {
     final prefs = await SharedPreferences.getInstance();
     final String? dataString = prefs.getString('data_motor');
-
     if (dataString != null) {
       final List decoded = jsonDecode(dataString);
       motorList = decoded.map((e) => Motor.fromJson(e)).toList();
@@ -730,7 +740,7 @@ class _MotorScreenState extends State<MotorScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              if (motor.isOutOfArea)
+              if (motor.totalDenda > 0)
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(8),
@@ -739,16 +749,34 @@ class _MotorScreenState extends State<MotorScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        '🚨 KELUAR BATAS AMAN DIY',
+                        '🚨 PERINGATAN PELANGGARAN',
                         style: TextStyle(
                           color: jogjaTerracotta,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      if (motor.isOutOfArea)
+                        Text(
+                          '• Keluar Area DIY (10%): ${GPSHelper.formatRupiah(motor.dendaKeluarArea)}',
+                          style: const TextStyle(
+                            color: jogjaTerracotta,
+                            fontSize: 12,
+                          ),
+                        ),
+                      if (motor.isTerlambat)
+                        Text(
+                          '• Terlambat Pengembalian (10%): ${GPSHelper.formatRupiah(motor.dendaTerlambat)}',
+                          style: const TextStyle(
+                            color: jogjaTerracotta,
+                            fontSize: 12,
+                          ),
+                        ),
+                      const Divider(color: jogjaTerracotta),
                       Text(
-                        'Biaya Tambahan: ${GPSHelper.formatRupiah(motor.extraFee)}',
+                        'Total Denda: ${GPSHelper.formatRupiah(motor.totalDenda)}',
                         style: const TextStyle(
                           color: jogjaTerracotta,
                           fontSize: 13,
@@ -801,7 +829,26 @@ class _MotorScreenState extends State<MotorScreen> {
     );
 
     String selectedStatus = isEdit ? motor.status : 'Tersedia';
-    bool simulasikanKeluarJogja = false;
+    String? tempImageBase64 = isEdit ? motor.imageBase64 : null;
+
+    // Default Simulasi menyesuaikan dengan kondisi Edit
+    bool simulasikanKeluarJogja = isEdit && motor.status == 'Disewa'
+        ? motor.isOutOfArea
+        : false;
+
+    String selectedPaket = isEdit && motor.paketSewa != null
+        ? motor.paketSewa!
+        : 'Harian';
+    final lamaSewaController = TextEditingController(
+      text: isEdit && motor.lamaSewa != null ? motor.lamaSewa.toString() : '1',
+    );
+
+    String tanggalSewaStr = isEdit && motor.tanggalSewa != null
+        ? motor.tanggalSewa!
+        : '${DateTime.now().day.toString().padLeft(2, '0')}/${DateTime.now().month.toString().padLeft(2, '0')}/${DateTime.now().year}';
+    String jamSewaStr = isEdit && motor.jamSewa != null
+        ? motor.jamSewa!
+        : '08:00';
 
     showDialog(
       context: context,
@@ -825,26 +872,71 @@ class _MotorScreenState extends State<MotorScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    GestureDetector(
+                      onTap: () async {
+                        final XFile? image = await _picker.pickImage(
+                          source: ImageSource.gallery,
+                          imageQuality: 30,
+                        );
+                        if (image != null) {
+                          final bytes = await image.readAsBytes();
+                          setDialogState(
+                            () => tempImageBase64 = base64Encode(bytes),
+                          );
+                        }
+                      },
+                      child: Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          color: soganBrown,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: keratonGold, width: 2),
+                          image: tempImageBase64 != null
+                              ? DecorationImage(
+                                  image: MemoryImage(
+                                    base64Decode(tempImageBase64!),
+                                  ),
+                                  fit: BoxFit.cover,
+                                )
+                              : null,
+                        ),
+                        child: tempImageBase64 == null
+                            ? const Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.add_a_photo,
+                                    color: keratonGold,
+                                    size: 24,
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Foto',
+                                    style: TextStyle(
+                                      color: keratonGold,
+                                      fontSize: 10,
+                                    ),
+                                  ),
+                                ],
+                              )
+                            : null,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     TextField(
                       controller: merkController,
                       decoration: const InputDecoration(
                         labelText: 'Merk Motor',
-                        focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: soganBrown),
-                        ),
                       ),
                     ),
                     TextField(
                       controller: platController,
                       decoration: const InputDecoration(
                         labelText: 'Plat Nomor',
-                        focusedBorder: UnderlineInputBorder(
-                          borderSide: BorderSide(color: soganBrown),
-                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
-
                     TextField(
                       controller: harianController,
                       keyboardType: TextInputType.number,
@@ -870,7 +962,6 @@ class _MotorScreenState extends State<MotorScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-
                     DropdownButtonFormField<String>(
                       value: selectedStatus,
                       items: ['Tersedia', 'Disewa', 'Perawatan']
@@ -884,18 +975,218 @@ class _MotorScreenState extends State<MotorScreen> {
                         labelText: 'Status Armada',
                       ),
                     ),
-                    if (!isEdit) ...[
-                      const SizedBox(height: 8),
-                      CheckboxListTile(
-                        activeColor: soganBrown,
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text(
-                          'Simulasikan Keluar Area DIY (>15 km)',
-                          style: TextStyle(fontSize: 12),
+
+                    if (selectedStatus == 'Disewa') ...[
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.orange.shade300),
                         ),
-                        value: simulasikanKeluarJogja,
-                        onChanged: (val) =>
-                            setDialogState(() => simulasikanKeluarJogja = val!),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Detail Penyewaan',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: soganBrown,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<String>(
+                                    value: selectedPaket,
+                                    items: ['Harian', 'Mingguan', 'Bulanan']
+                                        .map(
+                                          (s) => DropdownMenuItem(
+                                            value: s,
+                                            child: Text(s),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: (val) => setDialogState(
+                                      () => selectedPaket = val!,
+                                    ),
+                                    decoration: const InputDecoration(
+                                      labelText: 'Paket Sewa',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: TextField(
+                                    controller: lamaSewaController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Lama Sewa',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: () async {
+                                      final date = await showDatePicker(
+                                        context: context,
+                                        initialDate: DateTime.now(),
+                                        firstDate: DateTime(2000),
+                                        lastDate: DateTime(2100),
+                                        builder: (context, child) => Theme(
+                                          data: Theme.of(context).copyWith(
+                                            colorScheme:
+                                                const ColorScheme.light(
+                                                  primary: soganBrown,
+                                                  onPrimary: Colors.white,
+                                                  onSurface: Colors.black,
+                                                ),
+                                          ),
+                                          child: child!,
+                                        ),
+                                      );
+                                      if (date != null)
+                                        setDialogState(
+                                          () => tanggalSewaStr =
+                                              '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}',
+                                        );
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                        horizontal: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                          bottom: BorderSide(
+                                            color: Colors.grey.shade400,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Tanggal Mulai',
+                                            style: TextStyle(
+                                              color: Colors.grey.shade700,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                tanggalSewaStr,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14,
+                                                  color: soganBrown,
+                                                ),
+                                              ),
+                                              const Icon(
+                                                Icons.calendar_today,
+                                                color: keratonGold,
+                                                size: 16,
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: () async {
+                                      final time = await showTimePicker(
+                                        context: context,
+                                        initialTime: TimeOfDay.now(),
+                                      );
+                                      if (time != null)
+                                        setDialogState(
+                                          () => jamSewaStr =
+                                              '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}',
+                                        );
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        vertical: 8,
+                                        horizontal: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        border: Border(
+                                          bottom: BorderSide(
+                                            color: Colors.grey.shade400,
+                                          ),
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Jam Mulai',
+                                            style: TextStyle(
+                                              color: Colors.grey.shade700,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              Text(
+                                                jamSewaStr,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14,
+                                                  color: soganBrown,
+                                                ),
+                                              ),
+                                              const Icon(
+                                                Icons.access_time,
+                                                color: keratonGold,
+                                                size: 16,
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // --- SIMULASI KELUAR AREA SEKARANG HANYA ADA DI MENU 'DISEWA' ---
+                            const SizedBox(height: 12),
+                            CheckboxListTile(
+                              activeColor: soganBrown,
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text(
+                                'Simulasikan Keluar Area DIY (>15 km)',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              value: simulasikanKeluarJogja,
+                              onChanged: (val) => setDialogState(
+                                () => simulasikanKeluarJogja = val!,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ],
@@ -919,41 +1210,82 @@ class _MotorScreenState extends State<MotorScreen> {
                         platController.text.isEmpty)
                       return;
 
-                    String rawHarian = harianController.text.replaceAll(
-                      RegExp(r'[^0-9]'),
-                      '',
-                    );
-                    String rawMingguan = mingguanController.text.replaceAll(
-                      RegExp(r'[^0-9]'),
-                      '',
-                    );
-                    String rawBulanan = bulananController.text.replaceAll(
-                      RegExp(r'[^0-9]'),
-                      '',
-                    );
+                    int harian =
+                        int.tryParse(
+                          harianController.text.replaceAll(
+                            RegExp(r'[^0-9]'),
+                            '',
+                          ),
+                        ) ??
+                        0;
+                    int mingguan =
+                        int.tryParse(
+                          mingguanController.text.replaceAll(
+                            RegExp(r'[^0-9]'),
+                            '',
+                          ),
+                        ) ??
+                        0;
+                    int bulanan =
+                        int.tryParse(
+                          bulananController.text.replaceAll(
+                            RegExp(r'[^0-9]'),
+                            '',
+                          ),
+                        ) ??
+                        0;
 
-                    int harian = int.tryParse(rawHarian) ?? 0;
-                    int mingguan = int.tryParse(rawMingguan) ?? 0;
-                    int bulanan = int.tryParse(rawBulanan) ?? 0;
+                    // --- LOGIKA LOKASI: CEGAH TERSEDIA/PERAWATAN KELUAR AREA ---
+                    double newLat, newLng;
+                    final random = Random();
+
+                    if (selectedStatus != 'Disewa' || !simulasikanKeluarJogja) {
+                      // Harus di dalam area Jogja
+                      if (isEdit && !motor!.isOutOfArea) {
+                        newLat = motor.lat;
+                        newLng = motor.lng; // Pertahankan jika sudah di dalam
+                      } else {
+                        // Reset koordinat ke dalam kota (Tugu)
+                        newLat = -7.7956 + (random.nextDouble() - 0.5) * 0.04;
+                        newLng = 110.3695 + (random.nextDouble() - 0.5) * 0.04;
+                      }
+                    } else {
+                      // Disewa dan Disimulasikan Keluar Jogja
+                      if (isEdit && motor!.isOutOfArea) {
+                        newLat = motor.lat;
+                        newLng = motor.lng; // Pertahankan jika sudah di luar
+                      } else {
+                        // Pindah paksa ke luar area
+                        newLat = -7.5500 + (random.nextDouble() - 0.5) * 0.05;
+                        newLng = 110.7500 + (random.nextDouble() - 0.5) * 0.05;
+                      }
+                    }
+                    // ------------------------------------------------------------
 
                     if (isEdit) {
                       motor.merk = merkController.text;
                       motor.plat = platController.text;
                       motor.status = selectedStatus;
+                      motor.lat = newLat;
+                      motor.lng = newLng; // Update Lokasi
                       motor.hargaHarian = harian;
                       motor.hargaMingguan = mingguan;
                       motor.hargaBulanan = bulanan;
-                    } else {
-                      final random = Random();
-                      double newLat, newLng;
-                      if (simulasikanKeluarJogja) {
-                        newLat = -7.5500 + (random.nextDouble() - 0.5) * 0.05;
-                        newLng = 110.7500 + (random.nextDouble() - 0.5) * 0.05;
-                      } else {
-                        newLat = -7.7956 + (random.nextDouble() - 0.5) * 0.04;
-                        newLng = 110.3695 + (random.nextDouble() - 0.5) * 0.04;
-                      }
+                      motor.imageBase64 = tempImageBase64;
 
+                      if (selectedStatus == 'Disewa') {
+                        motor.paketSewa = selectedPaket;
+                        motor.lamaSewa =
+                            int.tryParse(lamaSewaController.text) ?? 1;
+                        motor.tanggalSewa = tanggalSewaStr;
+                        motor.jamSewa = jamSewaStr;
+                      } else {
+                        motor.paketSewa = null;
+                        motor.lamaSewa = null;
+                        motor.tanggalSewa = null;
+                        motor.jamSewa = null;
+                      }
+                    } else {
                       motorList.add(
                         Motor(
                           id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -965,6 +1297,19 @@ class _MotorScreenState extends State<MotorScreen> {
                           hargaHarian: harian,
                           hargaMingguan: mingguan,
                           hargaBulanan: bulanan,
+                          imageBase64: tempImageBase64,
+                          paketSewa: selectedStatus == 'Disewa'
+                              ? selectedPaket
+                              : null,
+                          lamaSewa: selectedStatus == 'Disewa'
+                              ? (int.tryParse(lamaSewaController.text) ?? 1)
+                              : null,
+                          tanggalSewa: selectedStatus == 'Disewa'
+                              ? tanggalSewaStr
+                              : null,
+                          jamSewa: selectedStatus == 'Disewa'
+                              ? jamSewaStr
+                              : null,
                         ),
                       );
                     }
@@ -1006,7 +1351,6 @@ class _MotorScreenState extends State<MotorScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: warmCream,
-      // AppBar Khusus untuk Data Motor (Tanpa ikon refresh)
       appBar: const JogjaTopHeader(title: "Inventaris Motor"),
       floatingActionButton: FloatingActionButton(
         heroTag: 'btnTambahMotor',
@@ -1040,29 +1384,14 @@ class _MotorScreenState extends State<MotorScreen> {
                       width: 1.2,
                     ),
                   ),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(14),
-                      color: Colors.white,
-                    ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
                     child: Stack(
                       children: [
-                        // Corak batik tipis di sudut kartu
-                        Positioned(
-                          top: 0,
-                          right: 0,
-                          child: ClipRRect(
-                            borderRadius: const BorderRadius.only(
-                              topRight: Radius.circular(14),
-                            ),
-                            child: SizedBox(
-                              width: 100,
-                              height: 60,
-                              child: CustomPaint(
-                                painter: BatikKawungPainter(
-                                  color: keratonGold.withOpacity(0.12),
-                                ),
-                              ),
+                        Positioned.fill(
+                          child: CustomPaint(
+                            painter: BatikKawungPainter(
+                              color: keratonGold.withOpacity(0.15),
                             ),
                           ),
                         ),
@@ -1073,7 +1402,8 @@ class _MotorScreenState extends State<MotorScreen> {
                               ListTile(
                                 contentPadding: EdgeInsets.zero,
                                 leading: Container(
-                                  padding: const EdgeInsets.all(10),
+                                  width: 50,
+                                  height: 50,
                                   decoration: BoxDecoration(
                                     color: soganBrown,
                                     shape: BoxShape.circle,
@@ -1081,12 +1411,22 @@ class _MotorScreenState extends State<MotorScreen> {
                                       color: keratonGold,
                                       width: 1.5,
                                     ),
+                                    image: motor.imageBase64 != null
+                                        ? DecorationImage(
+                                            image: MemoryImage(
+                                              base64Decode(motor.imageBase64!),
+                                            ),
+                                            fit: BoxFit.cover,
+                                          )
+                                        : null,
                                   ),
-                                  child: const Icon(
-                                    Icons.two_wheeler,
-                                    color: keratonGold,
-                                    size: 24,
-                                  ),
+                                  child: motor.imageBase64 == null
+                                      ? const Icon(
+                                          Icons.two_wheeler,
+                                          color: keratonGold,
+                                          size: 24,
+                                        )
+                                      : null,
                                 ),
                                 title: Text(
                                   motor.merk,
@@ -1133,7 +1473,6 @@ class _MotorScreenState extends State<MotorScreen> {
                                           color: keratonGreen,
                                           size: 22,
                                         ),
-                                        tooltip: 'Lacak GPS Live',
                                         onPressed: () =>
                                             _showLocationDialog(motor),
                                       ),
@@ -1198,7 +1537,68 @@ class _MotorScreenState extends State<MotorScreen> {
                                 ),
                               ),
 
-                              if (motor.isOutOfArea)
+                              if (motor.status == 'Disewa' &&
+                                  motor.paketSewa != null)
+                                Container(
+                                  width: double.infinity,
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.orange.shade50.withOpacity(
+                                      0.9,
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Colors.orange.shade300,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.history_toggle_off,
+                                        color: Colors.orange.shade800,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Disewa: ${motor.lamaSewa} ${motor.paketSewa}\nMulai : ${motor.tanggalSewa} - ${motor.jamSewa}\nBatas : ${motor.tenggatWaktuStr}',
+                                          style: TextStyle(
+                                            color: Colors.orange.shade900,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ),
+                                      Column(
+                                        children: [
+                                          const Text(
+                                            'Total Sewa',
+                                            style: TextStyle(
+                                              fontSize: 9,
+                                              color: Colors.black54,
+                                            ),
+                                          ),
+                                          Text(
+                                            GPSHelper.formatRupiah(
+                                              motor.totalHargaSewa,
+                                            ),
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.orange.shade900,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+
+                              if (motor.totalDenda > 0)
                                 Container(
                                   width: double.infinity,
                                   padding: const EdgeInsets.symmetric(
@@ -1213,6 +1613,8 @@ class _MotorScreenState extends State<MotorScreen> {
                                     ),
                                   ),
                                   child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       const Icon(
                                         Icons.warning_amber_rounded,
@@ -1221,13 +1623,44 @@ class _MotorScreenState extends State<MotorScreen> {
                                       ),
                                       const SizedBox(width: 8),
                                       Expanded(
-                                        child: Text(
-                                          'Keluar Area DIY! Denda Tambahan: ${GPSHelper.formatRupiah(motor.extraFee)}',
-                                          style: const TextStyle(
-                                            color: jogjaTerracotta,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 12,
-                                          ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              '🚨 Peringatan Pelanggaran!',
+                                              style: TextStyle(
+                                                color: jogjaTerracotta,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                            if (motor.isOutOfArea)
+                                              Text(
+                                                '- Keluar Area DIY (+10%): ${GPSHelper.formatRupiah(motor.dendaKeluarArea)}',
+                                                style: const TextStyle(
+                                                  color: jogjaTerracotta,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            if (motor.isTerlambat)
+                                              Text(
+                                                '- Terlambat Mengembalikan (+10%): ${GPSHelper.formatRupiah(motor.dendaTerlambat)}',
+                                                style: const TextStyle(
+                                                  color: jogjaTerracotta,
+                                                  fontSize: 11,
+                                                ),
+                                              ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Total Denda: ${GPSHelper.formatRupiah(motor.totalDenda)}',
+                                              style: const TextStyle(
+                                                color: jogjaTerracotta,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],
